@@ -7,6 +7,10 @@ export interface CollageItem {
   y: number;
   width: number;
   height: number;
+  /** Content zoom inside the frame (1 = image fills the frame). */
+  zoom: number;
+  /** Content rotation inside the frame, in degrees. */
+  rotation: number;
 }
 
 export interface CollageSettings {

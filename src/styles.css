@@ -158,3 +158,9 @@ button.primary {
     font-size: 12px;
   }
 }
+
+.view-label {
+  min-width: 6em;
+  font-variant-numeric: tabular-nums;
+  align-self: center;
+}

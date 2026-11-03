@@ -22,6 +22,12 @@ npm run typecheck
 
 Settings → Pages → Source: **GitHub Actions**. Pushes to `main` run `.github/workflows/deploy.yml`.
 
+## Zoom and rotate
+
+Select an image and use the toolbar buttons (zoom −/＋, rotate ⟲/⟳ by 90°, Reset view). The image is
+zoomed/rotated around the centre of its frame; anything outside the frame is cropped (also in the
+export).
+
 ## Keyboard shortcuts
 
 | Key                          | Action                          |

@@ -1,4 +1,6 @@
 import {
+  MAX_ZOOM,
+  MIN_ZOOM,
   arrangeInRow,
   canRedo,
   canUndo,
@@ -8,11 +10,12 @@ import {
   isLayoutDirty,
   redo,
   reorderSelected,
+  setItemView,
   subscribe,
   undo,
   updateSettings,
 } from '../state';
-import type { CollageSettings } from '../types';
+import type { CollageItem, CollageSettings } from '../types';
 
 const CONFIRM_MSG = 'This will reset the positions and sizes of all images. Continue?';
 
@@ -69,7 +72,32 @@ export function createToolbar(root: HTMLElement, actions: ToolbarActions): void 
   const back = button('Send to back', 'To back', () => reorderSelected('back'));
   const del = button('Delete', 'Delete', deleteSelected);
   const download = button('Download', 'Download', actions.download, true);
-  root.append(add, arrange, fit, settingsBtn, undoBtn, redoBtn, front, back, del, download);
+  const rotL = button('Rotate image 90° left', '⟲', () => rotateBy(-90));
+  const rotR = button('Rotate image 90° right', '⟳', () => rotateBy(90));
+  const zoomIn = button('Zoom image in', '＋', () => zoomBy(1.1));
+  const zoomOut = button('Zoom image out', '－', () => zoomBy(1 / 1.1));
+  const resetView = button('Reset image zoom and rotation', 'Reset view', () => {
+    const id = getState().selectedId;
+    if (id) setItemView(id, { zoom: 1, rotation: 0 });
+  });
+  const viewLabel = document.createElement('span');
+  viewLabel.className = 'view-label';
+  viewLabel.setAttribute('aria-live', 'off');
+  root.append(add, arrange, fit, settingsBtn, undoBtn, redoBtn, front, back, del);
+  root.append(zoomOut, zoomIn, rotL, rotR, resetView, viewLabel, download);
+
+  function selectedItem(): CollageItem | undefined {
+    const s = getState();
+    return s.items.find((i) => i.id === s.selectedId);
+  }
+  function rotateBy(deg: number): void {
+    const it = selectedItem();
+    if (it) setItemView(it.id, { rotation: it.rotation + deg });
+  }
+  function zoomBy(k: number): void {
+    const it = selectedItem();
+    if (it) setItemView(it.id, { zoom: it.zoom * k });
+  }
 
   const panel = document.createElement('div');
   panel.id = 'settings-panel';
@@ -151,6 +179,14 @@ export function createToolbar(root: HTMLElement, actions: ToolbarActions): void 
     quality.disabled = st.exportFormat !== 'jpeg';
     const has = s.selectedId !== null;
     front.disabled = back.disabled = del.disabled = !has;
+    const sel = selectedItem();
+    zoomIn.disabled = !sel || sel.zoom >= MAX_ZOOM;
+    zoomOut.disabled = !sel || sel.zoom <= MIN_ZOOM;
+    rotL.disabled = rotR.disabled = !sel;
+    resetView.disabled = !sel || (sel.zoom === 1 && sel.rotation === 0);
+    viewLabel.textContent = sel
+      ? `${Math.round(sel.zoom * 100)}% · ${Math.round(sel.rotation)}°`
+      : '';
     undoBtn.disabled = !canUndo();
     redoBtn.disabled = !canRedo();
     arrange.disabled = fit.disabled = download.disabled = s.items.length === 0;
