@@ -3,6 +3,8 @@ import type { CollageItem, CollageSettings, CollageState } from './types';
 
 const HISTORY_LIMIT = 50;
 export const MIN_ITEM_SIDE = 40;
+export const MIN_ZOOM = 0.1;
+export const MAX_ZOOM = 10;
 
 interface ItemGeom {
   id: string;
@@ -12,6 +14,8 @@ interface ItemGeom {
   height: number;
   naturalWidth: number;
   naturalHeight: number;
+  zoom: number;
+  rotation: number;
 }
 interface Snapshot {
   items: ItemGeom[];
@@ -67,6 +71,8 @@ function snapshot(): Snapshot {
       height: i.height,
       naturalWidth: i.naturalWidth,
       naturalHeight: i.naturalHeight,
+      zoom: i.zoom,
+      rotation: i.rotation,
     })),
     canvasWidth: state.canvasWidth,
     canvasHeight: state.canvasHeight,
@@ -140,6 +146,8 @@ export function addImages(newBitmaps: ImageBitmap[]): void {
       y: 0,
       width: source.width,
       height: source.height,
+      zoom: 1,
+      rotation: 0,
     };
   });
   if (state.items.length === 0) {
@@ -239,6 +247,25 @@ export function resizeItem(id: string, x: number, y: number, width: number, heig
   const w = k > 1 ? width * k : width;
   const h = k > 1 ? height * k : height;
   updateItem(id, { width: w, height: h, ...clampPosition(x, y, w, h) });
+  layoutDirty = true;
+  commit();
+}
+
+export function normalizeRotation(deg: number): number {
+  const r = ((deg % 360) + 360) % 360;
+  return r > 180 ? r - 360 : r;
+}
+
+/** Sets zoom and/or rotation of an item's content; the frame stays in place and overflow is cropped. */
+export function setItemView(id: string, view: { zoom?: number; rotation?: number }): void {
+  const it = state.items.find((i) => i.id === id);
+  if (!it) return;
+  const zoom =
+    view.zoom === undefined ? it.zoom : Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, view.zoom));
+  const rotation = view.rotation === undefined ? it.rotation : normalizeRotation(view.rotation);
+  if (!Number.isFinite(zoom) || !Number.isFinite(rotation)) return;
+  if (zoom === it.zoom && rotation === it.rotation) return;
+  updateItem(id, { zoom, rotation });
   layoutDirty = true;
   commit();
 }

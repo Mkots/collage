@@ -33,6 +33,34 @@ function checkerPattern(): HTMLCanvasElement {
   return c;
 }
 
+/**
+ * Draws an item: the frame is the clip rect, the image is zoomed and rotated around the
+ * frame centre, anything outside the frame is cropped. Also used for the export.
+ */
+function drawItem(ctx: Konva.Context, shape: Konva.Shape): void {
+  const w = shape.width();
+  const h = shape.height();
+  const image = shape.getAttr('image') as ImageBitmap | undefined;
+  if (!image) return;
+  const zoom = shape.getAttr('viewZoom') as number;
+  const rotation = shape.getAttr('viewRotation') as number;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, w, h);
+  ctx.clip();
+  ctx.translate(w / 2, h / 2);
+  ctx.rotate((rotation * Math.PI) / 180);
+  ctx.scale(zoom, zoom);
+  ctx.drawImage(image, -w / 2, -h / 2, w, h);
+  ctx.restore();
+}
+function hitItem(ctx: Konva.Context, shape: Konva.Shape): void {
+  ctx.beginPath();
+  ctx.rect(0, 0, shape.width(), shape.height());
+  ctx.closePath();
+  ctx.fillStrokeShape(shape);
+}
+
 export function createStage(container: HTMLElement): StageHandle {
   const stage = new Konva.Stage({ container: container as HTMLDivElement, width: 1, height: 1 });
   const bgLayer = new Konva.Layer({ listening: false });
@@ -56,7 +84,7 @@ export function createStage(container: HTMLElement): StageHandle {
   });
   itemLayer.add(transformer);
   const guides = createGuides(guideLayer);
-  const nodes = new Map<string, Konva.Image>();
+  const nodes = new Map<string, Konva.Shape>();
   let scale = 1;
   let others: Rect[] = [];
 
@@ -64,7 +92,7 @@ export function createStage(container: HTMLElement): StageHandle {
     if (e.target === stage) select(null);
   });
 
-  function attach(id: string, node: Konva.Image): void {
+  function attach(id: string, node: Konva.Shape): void {
     node.on('mousedown touchstart', () => select(id));
     node.on('dragstart', () => {
       others = getState()
@@ -143,13 +171,15 @@ export function createStage(container: HTMLElement): StageHandle {
     s.items.forEach((it, idx) => {
       let node = nodes.get(it.id);
       if (!node) {
-        node = new Konva.Image({ image: it.source, draggable: true });
+        node = new Konva.Shape({ draggable: true, sceneFunc: drawItem, hitFunc: hitItem });
         nodes.set(it.id, node);
         itemLayer.add(node);
         attach(it.id, node);
       }
       node.setAttrs({
         image: it.source,
+        viewZoom: it.zoom,
+        viewRotation: it.rotation,
         x: it.x,
         y: it.y,
         width: it.width,
