@@ -1,0 +1,160 @@
+:root {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --text: #1c1e21;
+  --border: #d5d8dd;
+  --accent: #ff2d7a;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1c1f;
+    --panel: #26282c;
+    --text: #e8e9eb;
+    --border: #3a3d42;
+  }
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    14px/1.4 system-ui,
+    sans-serif;
+}
+#toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+button {
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  margin-left: auto;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+#settings-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+#settings-panel[hidden] {
+  display: none;
+}
+#settings-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+#settings-panel input[type='number'] {
+  width: 90px;
+}
+#workspace {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+#canvas-container {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  touch-action: none;
+}
+#empty-state {
+  position: absolute;
+  inset: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 1.25rem;
+  border: 3px dashed var(--border);
+  border-radius: 16px;
+  background: transparent;
+}
+#empty-state[hidden] {
+  display: none;
+}
+#status {
+  padding: 4px 8px;
+  font-size: 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  min-height: 24px;
+}
+#drop-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  background: rgb(255 45 122 / 0.2);
+  border: 4px dashed var(--accent);
+  z-index: 50;
+  pointer-events: none;
+}
+#drop-overlay[hidden] {
+  display: none;
+}
+#toasts {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 100;
+}
+.toast {
+  padding: 8px 12px;
+  background: #222;
+  color: #fff;
+  border-radius: 6px;
+  max-width: 320px;
+}
+@media (max-width: 600px) {
+  button {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+}
