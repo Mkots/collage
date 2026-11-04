@@ -48,7 +48,9 @@ function drawItem(ctx: Konva.Context, shape: Konva.Shape): void {
   ctx.beginPath();
   ctx.rect(0, 0, w, h);
   ctx.clip();
-  ctx.translate(w / 2, h / 2);
+  const panX = (shape.getAttr('viewPanX') as number) ?? 0;
+  const panY = (shape.getAttr('viewPanY') as number) ?? 0;
+  ctx.translate(w / 2 + panX * w, h / 2 + panY * h);
   ctx.rotate((rotation * Math.PI) / 180);
   ctx.scale(zoom, zoom);
   ctx.drawImage(image, -w / 2, -h / 2, w, h);
@@ -180,6 +182,8 @@ export function createStage(container: HTMLElement): StageHandle {
         image: it.source,
         viewZoom: it.zoom,
         viewRotation: it.rotation,
+        viewPanX: it.panX,
+        viewPanY: it.panY,
         x: it.x,
         y: it.y,
         width: it.width,

@@ -24,9 +24,10 @@ Settings → Pages → Source: **GitHub Actions**. Pushes to `main` run `.github
 
 ## Zoom and rotate
 
-Select an image and use the toolbar buttons (zoom −/＋, rotate ⟲/⟳ by 90°, Reset view). The image is
-zoomed/rotated around the centre of its frame; anything outside the frame is cropped (also in the
-export).
+Select an image: the toolbar has zoom −/＋, 90° rotate buttons and Reset view, and a panel appears
+with sliders/number fields for free rotation (any angle), zoom, and vertical/horizontal shift of the
+image inside its frame. The image is transformed around the centre of its frame; anything outside the
+frame is cropped (also in the export).
 
 ## Keyboard shortcuts
 

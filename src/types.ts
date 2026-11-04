@@ -11,6 +11,10 @@ export interface CollageItem {
   zoom: number;
   /** Content rotation inside the frame, in degrees. */
   rotation: number;
+  /** Content offset from the frame centre, as a fraction of frame width (-1..1). */
+  panX: number;
+  /** Content offset from the frame centre, as a fraction of frame height (-1..1). */
+  panY: number;
 }
 
 export interface CollageSettings {

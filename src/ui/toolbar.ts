@@ -1,7 +1,9 @@
 import {
+  MAX_PAN,
   MAX_ZOOM,
   MIN_ZOOM,
   arrangeInRow,
+  commitView,
   canRedo,
   canUndo,
   deleteSelected,
@@ -15,6 +17,7 @@ import {
   undo,
   updateSettings,
 } from '../state';
+import type { ItemView } from '../state';
 import type { CollageItem, CollageSettings } from '../types';
 
 const CONFIRM_MSG = 'This will reset the positions and sizes of all images. Continue?';
@@ -78,7 +81,7 @@ export function createToolbar(root: HTMLElement, actions: ToolbarActions): void 
   const zoomOut = button('Zoom image out', '－', () => zoomBy(1 / 1.1));
   const resetView = button('Reset image zoom and rotation', 'Reset view', () => {
     const id = getState().selectedId;
-    if (id) setItemView(id, { zoom: 1, rotation: 0 });
+    if (id) setItemView(id, { zoom: 1, rotation: 0, panX: 0, panY: 0 });
   });
   const viewLabel = document.createElement('span');
   viewLabel.className = 'view-label';
@@ -117,6 +120,84 @@ export function createToolbar(root: HTMLElement, actions: ToolbarActions): void 
   panel.appendChild(fl);
   const quality = field(panel, 'JPEG quality', 'number', { min: '0.5', max: '1', step: '0.01' });
   root.after(panel);
+
+  // Per-image view panel: free rotation, zoom and pan (visible while an image is selected).
+  const viewPanel = document.createElement('div');
+  viewPanel.id = 'view-panel';
+  viewPanel.hidden = true;
+  viewPanel.setAttribute('role', 'group');
+  viewPanel.setAttribute('aria-label', 'Selected image framing');
+  const pair = (
+    label: string,
+    rangeAttrs: Record<string, string>,
+    numAttrs: Record<string, string>,
+  ): { range: HTMLInputElement; num: HTMLInputElement } => {
+    const l = document.createElement('label');
+    l.textContent = label;
+    const range = document.createElement('input');
+    range.type = 'range';
+    Object.entries(rangeAttrs).forEach(([k, v]) => range.setAttribute(k, v));
+    range.setAttribute('aria-label', label);
+    const num = document.createElement('input');
+    num.type = 'number';
+    Object.entries(numAttrs).forEach(([k, v]) => num.setAttribute(k, v));
+    num.setAttribute('aria-label', `${label} (value)`);
+    l.append(range, num);
+    viewPanel.appendChild(l);
+    return { range, num };
+  };
+  const { range: rotRange, num: rotNum } = pair(
+    'Rotation °',
+    { min: '-180', max: '180', step: '0.5' },
+    { min: '-180', max: '180', step: '0.1' },
+  );
+  const { range: zoomRange, num: zoomNum } = pair(
+    'Zoom %',
+    { min: String(Math.log(MIN_ZOOM)), max: String(Math.log(MAX_ZOOM)), step: 'any' },
+    { min: String(MIN_ZOOM * 100), max: String(MAX_ZOOM * 100), step: '1' },
+  );
+  const { range: panYRange, num: panYNum } = pair(
+    'Vertical %',
+    { min: String(-MAX_PAN * 100), max: String(MAX_PAN * 100), step: '0.5' },
+    { min: String(-MAX_PAN * 100), max: String(MAX_PAN * 100), step: '0.5' },
+  );
+  const { range: panXRange, num: panXNum } = pair(
+    'Horizontal %',
+    { min: String(-MAX_PAN * 100), max: String(MAX_PAN * 100), step: '0.5' },
+    { min: String(-MAX_PAN * 100), max: String(MAX_PAN * 100), step: '0.5' },
+  );
+  panel.after(viewPanel);
+
+  function setView(el: HTMLInputElement, v: number): void {
+    if (el !== document.activeElement) el.value = String(v);
+  }
+  function bindView(
+    range: HTMLInputElement,
+    num: HTMLInputElement,
+    toView: (v: number) => ItemView,
+    fromRange: (v: number) => number = (v) => v,
+  ): void {
+    range.addEventListener('input', () => {
+      const it = selectedItem();
+      if (it) setItemView(it.id, toView(fromRange(Number(range.value))), false);
+    });
+    range.addEventListener('change', commitView);
+    num.addEventListener('change', () => {
+      const it = selectedItem();
+      if (it && num.value !== '' && Number.isFinite(Number(num.value)))
+        setItemView(it.id, toView(Number(num.value)));
+      else sync();
+    });
+  }
+  bindView(rotRange, rotNum, (v) => ({ rotation: v }));
+  bindView(
+    zoomRange,
+    zoomNum,
+    (v) => ({ zoom: v / 100 }),
+    (v) => Math.exp(v) * 100,
+  );
+  bindView(panYRange, panYNum, (v) => ({ panY: v / 100 }));
+  bindView(panXRange, panXNum, (v) => ({ panX: v / 100 }));
 
   function toggle(open = panel.hidden): void {
     panel.hidden = !open;
@@ -183,7 +264,20 @@ export function createToolbar(root: HTMLElement, actions: ToolbarActions): void 
     zoomIn.disabled = !sel || sel.zoom >= MAX_ZOOM;
     zoomOut.disabled = !sel || sel.zoom <= MIN_ZOOM;
     rotL.disabled = rotR.disabled = !sel;
-    resetView.disabled = !sel || (sel.zoom === 1 && sel.rotation === 0);
+    resetView.disabled =
+      !sel || (sel.zoom === 1 && sel.rotation === 0 && sel.panX === 0 && sel.panY === 0);
+    viewPanel.hidden = !sel;
+    if (sel) {
+      const zoomPct = Math.round(sel.zoom * 100);
+      setView(zoomRange, Math.log(sel.zoom));
+      setView(zoomNum, zoomPct);
+      setView(rotRange, sel.rotation);
+      setView(rotNum, Math.round(sel.rotation * 10) / 10);
+      setView(panYRange, sel.panY * 100);
+      setView(panYNum, Math.round(sel.panY * 1000) / 10);
+      setView(panXRange, sel.panX * 100);
+      setView(panXNum, Math.round(sel.panX * 1000) / 10);
+    }
     viewLabel.textContent = sel
       ? `${Math.round(sel.zoom * 100)}% · ${Math.round(sel.rotation)}°`
       : '';

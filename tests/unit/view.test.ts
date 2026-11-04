@@ -40,3 +40,23 @@ describe('setItemView', () => {
     expect(cur.rotation).toBe(0);
   });
 });
+
+describe('pan and free rotation', () => {
+  it('stores arbitrary angle and clamped pan; live changes need commitView', async () => {
+    const { commitView, setItemView, addImages, getState, undo } = await import('../../src/state');
+    addImages([bmp()]);
+    const id = getState().items.at(-1)!.id;
+    setItemView(id, { rotation: 12.5, panY: 5, panX: -0.25 });
+    let it = getState().items.find((i) => i.id === id)!;
+    expect([it.rotation, it.panY, it.panX]).toEqual([12.5, 1, -0.25]);
+    setItemView(id, { panY: 0.1 }, false);
+    setItemView(id, { panY: 0.2 }, false);
+    commitView();
+    undo();
+    it = getState().items.find((i) => i.id === id)!;
+    expect(it.panY).toBe(1);
+    undo();
+    it = getState().items.find((i) => i.id === id)!;
+    expect([it.rotation, it.panY, it.panX]).toEqual([0, 0, 0]);
+  });
+});
