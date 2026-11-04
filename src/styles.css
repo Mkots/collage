@@ -164,3 +164,23 @@ button.primary {
   font-variant-numeric: tabular-nums;
   align-self: center;
 }
+
+#view-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+#view-panel[hidden] {
+  display: none;
+}
+#view-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+#view-panel input[type='number'] {
+  width: 90px;
+}

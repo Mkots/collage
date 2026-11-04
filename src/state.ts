@@ -5,6 +5,7 @@ const HISTORY_LIMIT = 50;
 export const MIN_ITEM_SIDE = 40;
 export const MIN_ZOOM = 0.1;
 export const MAX_ZOOM = 10;
+export const MAX_PAN = 1;
 
 interface ItemGeom {
   id: string;
@@ -16,6 +17,8 @@ interface ItemGeom {
   naturalHeight: number;
   zoom: number;
   rotation: number;
+  panX: number;
+  panY: number;
 }
 interface Snapshot {
   items: ItemGeom[];
@@ -73,6 +76,8 @@ function snapshot(): Snapshot {
       naturalHeight: i.naturalHeight,
       zoom: i.zoom,
       rotation: i.rotation,
+      panX: i.panX,
+      panY: i.panY,
     })),
     canvasWidth: state.canvasWidth,
     canvasHeight: state.canvasHeight,
@@ -148,6 +153,8 @@ export function addImages(newBitmaps: ImageBitmap[]): void {
       height: source.height,
       zoom: 1,
       rotation: 0,
+      panX: 0,
+      panY: 0,
     };
   });
   if (state.items.length === 0) {
@@ -256,17 +263,49 @@ export function normalizeRotation(deg: number): number {
   return r > 180 ? r - 360 : r;
 }
 
-/** Sets zoom and/or rotation of an item's content; the frame stays in place and overflow is cropped. */
-export function setItemView(id: string, view: { zoom?: number; rotation?: number }): void {
+export interface ItemView {
+  zoom?: number;
+  rotation?: number;
+  panX?: number;
+  panY?: number;
+}
+
+let viewPending = false;
+
+/**
+ * Sets zoom, rotation and/or pan of an item's content; the frame stays in place and overflow is
+ * cropped. With `record: false` (live slider dragging) no history entry is made until
+ * `commitView()` is called.
+ */
+export function setItemView(id: string, view: ItemView, record = true): void {
   const it = state.items.find((i) => i.id === id);
   if (!it) return;
-  const zoom =
-    view.zoom === undefined ? it.zoom : Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, view.zoom));
-  const rotation = view.rotation === undefined ? it.rotation : normalizeRotation(view.rotation);
-  if (!Number.isFinite(zoom) || !Number.isFinite(rotation)) return;
-  if (zoom === it.zoom && rotation === it.rotation) return;
-  updateItem(id, { zoom, rotation });
-  layoutDirty = true;
+  const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+  const next = {
+    zoom: view.zoom === undefined ? it.zoom : clamp(view.zoom, MIN_ZOOM, MAX_ZOOM),
+    rotation: view.rotation === undefined ? it.rotation : normalizeRotation(view.rotation),
+    panX: view.panX === undefined ? it.panX : clamp(view.panX, -MAX_PAN, MAX_PAN),
+    panY: view.panY === undefined ? it.panY : clamp(view.panY, -MAX_PAN, MAX_PAN),
+  };
+  if (!Object.values(next).every(Number.isFinite)) return;
+  const changed = (Object.keys(next) as (keyof typeof next)[]).some((k) => next[k] !== it[k]);
+  if (changed) {
+    updateItem(id, next);
+    layoutDirty = true;
+  }
+  if (record && (changed || viewPending)) {
+    viewPending = false;
+    commit();
+  } else if (changed) {
+    viewPending = true;
+    emit();
+  }
+}
+
+/** Records a history entry for live (`record: false`) view changes. */
+export function commitView(): void {
+  if (!viewPending) return;
+  viewPending = false;
   commit();
 }
 
