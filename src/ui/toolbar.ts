@@ -11,6 +11,10 @@ import {
   getState,
   isLayoutDirty,
   redo,
+  rotateAll,
+  setCanvasSize,
+  MIN_CANVAS,
+  MAX_CANVAS,
   reorderSelected,
   setItemView,
   subscribe,
@@ -79,6 +83,8 @@ export function createToolbar(root: HTMLElement, actions: ToolbarActions): void 
   const rotR = button('Rotate image 90° right', '⟳', () => rotateBy(90));
   const zoomIn = button('Zoom image in', '＋', () => zoomBy(1.1));
   const zoomOut = button('Zoom image out', '－', () => zoomBy(1 / 1.1));
+  const rotAllL = button('Rotate all images 90° left', 'All ⟲', () => rotateAll(-90));
+  const rotAllR = button('Rotate all images 90° right', 'All ⟳', () => rotateAll(90));
   const resetView = button('Reset image zoom and rotation', 'Reset view', () => {
     const id = getState().selectedId;
     if (id) setItemView(id, { zoom: 1, rotation: 0, panX: 0, panY: 0 });
@@ -87,7 +93,7 @@ export function createToolbar(root: HTMLElement, actions: ToolbarActions): void 
   viewLabel.className = 'view-label';
   viewLabel.setAttribute('aria-live', 'off');
   root.append(add, arrange, fit, settingsBtn, undoBtn, redoBtn, front, back, del);
-  root.append(zoomOut, zoomIn, rotL, rotR, resetView, viewLabel, download);
+  root.append(zoomOut, zoomIn, rotL, rotR, rotAllL, rotAllR, resetView, viewLabel, download);
 
   function selectedItem(): CollageItem | undefined {
     const s = getState();
@@ -110,6 +116,14 @@ export function createToolbar(root: HTMLElement, actions: ToolbarActions): void 
   const rowHeight = field(panel, 'Row height', 'number', { min: '40', max: '4000' });
   const gap = field(panel, 'Gap', 'number', { min: '0', max: '500' });
   const padding = field(panel, 'Padding', 'number', { min: '0', max: '500' });
+  const canvasW = field(panel, 'Canvas width', 'number', {
+    min: String(MIN_CANVAS),
+    max: String(MAX_CANVAS),
+  });
+  const canvasH = field(panel, 'Canvas height', 'number', {
+    min: String(MIN_CANVAS),
+    max: String(MAX_CANVAS),
+  });
   const bg = field(panel, 'Background', 'color');
   const transparent = field(panel, 'Transparent', 'checkbox');
   const format = document.createElement('select');
@@ -228,6 +242,13 @@ export function createToolbar(root: HTMLElement, actions: ToolbarActions): void 
   padding.addEventListener('change', () =>
     positive(padding, 0) ? layoutChange({ padding: num(padding) }) : sync(),
   );
+  const canvasChange = (): void => {
+    if (positive(canvasW, MIN_CANVAS) && positive(canvasH, MIN_CANVAS))
+      setCanvasSize(num(canvasW), num(canvasH));
+    else sync();
+  };
+  canvasW.addEventListener('change', canvasChange);
+  canvasH.addEventListener('change', canvasChange);
   bg.addEventListener('input', () => {
     transparent.checked = false;
     updateSettings({ background: bg.value });
@@ -250,6 +271,8 @@ export function createToolbar(root: HTMLElement, actions: ToolbarActions): void 
       if (el !== active) el.value = v;
     };
     set(rowHeight, String(Math.round(st.rowHeight)));
+    set(canvasW, String(Math.round(s.canvasWidth)));
+    set(canvasH, String(Math.round(s.canvasHeight)));
     set(gap, String(st.gap));
     set(padding, String(st.padding));
     if (st.background !== 'transparent' && /^#[0-9a-f]{6}$/i.test(st.background))
@@ -264,6 +287,7 @@ export function createToolbar(root: HTMLElement, actions: ToolbarActions): void 
     zoomIn.disabled = !sel || sel.zoom >= MAX_ZOOM;
     zoomOut.disabled = !sel || sel.zoom <= MIN_ZOOM;
     rotL.disabled = rotR.disabled = !sel;
+    rotAllL.disabled = rotAllR.disabled = s.items.length === 0;
     resetView.disabled =
       !sel || (sel.zoom === 1 && sel.rotation === 0 && sel.panX === 0 && sel.panY === 0);
     viewPanel.hidden = !sel;
