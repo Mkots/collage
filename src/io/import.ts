@@ -26,6 +26,13 @@ export async function decodeFile(file: File): Promise<ImageBitmap | null> {
   }
 }
 
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+/** Natural file-name order (IMG_2 before IMG_10), so a batch lands in a predictable order. */
+export function sortByName<T extends { name: string }>(files: T[]): T[] {
+  return [...files].sort((a, b) => collator.compare(a.name, b.name));
+}
+
 export async function decodeFiles(files: File[]): Promise<ImageBitmap[]> {
   const out: ImageBitmap[] = [];
   for (const f of files) {
@@ -42,7 +49,7 @@ export function setupImport(
   onImages: (b: ImageBitmap[]) => void,
 ): void {
   const handle = async (files: File[]): Promise<void> => {
-    if (files.length) onImages(await decodeFiles(files));
+    if (files.length) onImages(await decodeFiles(sortByName(files)));
   };
   input.addEventListener('change', () => {
     const files = Array.from(input.files ?? []);

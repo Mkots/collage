@@ -1,11 +1,20 @@
-import { defaultRowHeight, layoutRow } from './layout/row';
-import type { CollageItem, CollageSettings, CollageState } from './types';
+import {
+  defaultRowHeight,
+  insertionIndex,
+  layoutRow,
+  orientedSize,
+  rowHeightForHeight,
+  rowHeightForWidth,
+} from './layout/row';
+import type { CollageItem, CollageSettings, CollageState, LayoutMode, Orientation } from './types';
 
 const HISTORY_LIMIT = 50;
 export const MIN_ITEM_SIDE = 40;
 export const MIN_ZOOM = 0.1;
 export const MAX_ZOOM = 10;
 export const MAX_PAN = 1;
+export const MIN_ROW_HEIGHT = 40;
+export const MAX_ROW_HEIGHT = 4000;
 
 interface ItemGeom {
   id: string;
@@ -15,6 +24,7 @@ interface ItemGeom {
   height: number;
   naturalWidth: number;
   naturalHeight: number;
+  orientation: Orientation;
   zoom: number;
   rotation: number;
   panX: number;
@@ -28,6 +38,7 @@ interface Snapshot {
 }
 
 export const DEFAULT_SETTINGS: CollageSettings = {
+  layoutMode: 'row',
   rowHeight: 400,
   gap: 16,
   padding: 32,
@@ -46,7 +57,6 @@ let state: CollageState = {
 const bitmaps = new Map<string, ImageBitmap>();
 let history: Snapshot[] = [];
 let historyIndex = -1;
-let layoutDirty = false;
 let nextId = 1;
 const listeners = new Set<() => void>();
 
@@ -74,6 +84,7 @@ function snapshot(): Snapshot {
       height: i.height,
       naturalWidth: i.naturalWidth,
       naturalHeight: i.naturalHeight,
+      orientation: i.orientation,
       zoom: i.zoom,
       rotation: i.rotation,
       panX: i.panX,
@@ -133,8 +144,38 @@ function updateItem(id: string, patch: Partial<CollageItem>): void {
   set({ items: state.items.map((i) => (i.id === id ? { ...i, ...patch } : i)) });
 }
 
-export function isLayoutDirty(): boolean {
-  return layoutDirty && state.items.length > 0;
+function isRow(): boolean {
+  return state.settings.layoutMode === 'row';
+}
+
+/** Displayed (oriented) size of an item's photo. */
+export function displaySize(i: CollageItem): { width: number; height: number } {
+  return orientedSize({ width: i.naturalWidth, height: i.naturalHeight }, i.orientation);
+}
+
+/** Items in left-to-right order (by frame centre). */
+export function rowOrder(items: CollageItem[] = state.items): CollageItem[] {
+  return [...items].sort((a, b) => a.x + a.width / 2 - (b.x + b.width / 2) || a.y - b.y);
+}
+
+/** Lays the items out in one row in the given order. */
+function layoutOrdered(ordered: CollageItem[]): void {
+  const res = layoutRow(ordered.map(displaySize), state.settings);
+  const geom = new Map<string, number>();
+  ordered.forEach((it, idx) => geom.set(it.id, idx));
+  set({
+    items: state.items.map((i) => {
+      const idx = geom.get(i.id);
+      return idx === undefined ? i : { ...i, ...res.items[idx] };
+    }),
+    canvasWidth: res.canvasWidth,
+    canvasHeight: res.canvasHeight,
+  });
+}
+
+/** In row mode, re-flows the row keeping the current left-to-right order. */
+function reflow(): void {
+  if (isRow() && state.items.length > 0) layoutOrdered(rowOrder());
 }
 
 export function addImages(newBitmaps: ImageBitmap[]): void {
@@ -147,6 +188,7 @@ export function addImages(newBitmaps: ImageBitmap[]): void {
       source,
       naturalWidth: source.width,
       naturalHeight: source.height,
+      orientation: 0,
       x: 0,
       y: 0,
       width: source.width,
@@ -158,17 +200,19 @@ export function addImages(newBitmaps: ImageBitmap[]): void {
     };
   });
   if (state.items.length === 0) {
-    const rowHeight = defaultRowHeight(
-      created.map((i) => ({ width: i.naturalWidth, height: i.naturalHeight })),
-    );
-    set({ settings: { ...state.settings, rowHeight } });
-    set({ items: created });
-    applyLayout(false);
+    const rowHeight = defaultRowHeight(created.map(displaySize));
+    set({ settings: { ...state.settings, rowHeight }, items: created });
+    layoutOrdered(created);
+  } else if (isRow()) {
+    const ordered = [...rowOrder(), ...created];
+    set({ items: [...state.items, ...created] });
+    layoutOrdered(ordered);
   } else {
     const { rowHeight, gap, padding } = state.settings;
     let x = Math.max(...state.items.map((i) => i.x + i.width)) + gap;
     const placed = created.map((i) => {
-      const width = Math.max(1, Math.round((rowHeight * i.naturalWidth) / i.naturalHeight));
+      const d = displaySize(i);
+      const width = Math.max(1, Math.round((rowHeight * d.width) / d.height));
       const p = { ...i, x, y: padding, width, height: rowHeight };
       x += width + gap;
       return p;
@@ -179,34 +223,34 @@ export function addImages(newBitmaps: ImageBitmap[]): void {
       canvasHeight: Math.max(state.canvasHeight, padding * 2 + rowHeight),
     });
   }
-  set({ selectedId: created[created.length - 1].id });
+  set({ selectedId: null });
   commit();
 }
 
-function applyLayout(sortByX: boolean): void {
-  const ordered = sortByX ? [...state.items].sort((a, b) => a.x - b.x) : state.items;
-  const res = layoutRow(
-    ordered.map((i) => ({ width: i.naturalWidth, height: i.naturalHeight })),
-    state.settings,
-  );
-  const geom = new Map<string, number>();
-  ordered.forEach((it, idx) => geom.set(it.id, idx));
-  set({
-    items: state.items.map((i) => ({ ...i, ...res.items[geom.get(i.id) as number] })),
-    canvasWidth: res.canvasWidth,
-    canvasHeight: res.canvasHeight,
-  });
-  layoutDirty = false;
+/** Switches between the automatic row layout and free placement. */
+export function setLayoutMode(mode: LayoutMode): void {
+  if (state.settings.layoutMode === mode) return;
+  set({ settings: { ...state.settings, layoutMode: mode } });
+  reflow();
+  commit();
 }
 
+/** Lays all images out in one row (switches to row mode). */
 export function arrangeInRow(): void {
   if (state.items.length === 0) return;
-  applyLayout(true);
-  commit();
+  if (isRow()) {
+    reflow();
+    commit();
+  } else setLayoutMode('row');
 }
 
 export function fitCanvas(): void {
   if (state.items.length === 0) return;
+  if (isRow()) {
+    reflow();
+    commit();
+    return;
+  }
   const { padding } = state.settings;
   const minX = Math.min(...state.items.map((i) => i.x));
   const minY = Math.min(...state.items.map((i) => i.y));
@@ -222,42 +266,121 @@ export function fitCanvas(): void {
   commit();
 }
 
+const clampRowHeight = (h: number): number =>
+  Math.round(Math.min(MAX_ROW_HEIGHT, Math.max(MIN_ROW_HEIGHT, h)));
+
 export function updateSettings(patch: Partial<CollageSettings>): void {
-  const old = state.settings;
-  const next = { ...old, ...patch };
+  const next = { ...state.settings, ...patch };
   next.jpegQuality = Math.min(1, Math.max(0.5, next.jpegQuality));
+  next.rowHeight = clampRowHeight(next.rowHeight);
+  next.gap = Math.max(0, next.gap);
+  next.padding = Math.max(0, next.padding);
   set({ settings: next });
-  const layoutChanged =
-    next.rowHeight !== old.rowHeight || next.gap !== old.gap || next.padding !== old.padding;
-  if (layoutChanged && state.items.length > 0) applyLayout(true);
+  reflow();
   commit();
 }
 
 export const MIN_CANVAS = 50;
 export const MAX_CANVAS = 20000;
 
-/** Sets the canvas size; items are kept inside the new bounds. */
+/**
+ * Sets the canvas size. In row mode the row height is chosen so the row fills the requested
+ * width (or height, if only the height changed); in free mode items are kept inside the bounds.
+ */
 export function setCanvasSize(width: number, height: number): void {
   if (!Number.isFinite(width) || !Number.isFinite(height)) return;
   const cw = Math.round(Math.min(MAX_CANVAS, Math.max(MIN_CANVAS, width)));
   const ch = Math.round(Math.min(MAX_CANVAS, Math.max(MIN_CANVAS, height)));
   if (cw === state.canvasWidth && ch === state.canvasHeight) return;
+  if (isRow() && state.items.length > 0) {
+    const { gap, padding } = state.settings;
+    const rowHeight =
+      cw !== state.canvasWidth
+        ? rowHeightForWidth(state.items.map(displaySize), cw, gap, padding)
+        : rowHeightForHeight(ch, padding);
+    updateSettings({ rowHeight });
+    return;
+  }
   set({
     canvasWidth: cw,
     canvasHeight: ch,
     items: state.items.map((i) => ({ ...i, ...clampItem(i, cw, ch) })),
   });
-  layoutDirty = true;
   commit();
 }
 
-/** Rotates the content of every image by `deg` degrees in one history step. */
+/** Rotates an item by a multiple of 90° clockwise: the frame turns with the photo, no cropping. */
+function turned(i: CollageItem, deg: number): CollageItem {
+  const q = ((((Math.round(deg / 90) * 90) % 360) + 360) % 360) as Orientation;
+  if (q === 0) return i;
+  const orientation = ((i.orientation + q) % 360) as Orientation;
+  const [panX, panY] =
+    q === 90 ? [-i.panY, i.panX] : q === 270 ? [i.panY, -i.panX] : [-i.panX, -i.panY];
+  const next = { ...i, orientation, panX: panX || 0, panY: panY || 0 };
+  if (q === 180 || isRow()) return next;
+  // Free mode: swap the frame's sides around its centre, shrinking it if it no longer fits.
+  const k = Math.min(1, state.canvasWidth / i.height, state.canvasHeight / i.width);
+  const width = i.height * k;
+  const height = i.width * k;
+  const x = i.x + i.width / 2 - width / 2;
+  const y = i.y + i.height / 2 - height / 2;
+  return { ...next, ...clampItem({ x, y, width, height }, state.canvasWidth, state.canvasHeight) };
+}
+
+/** Rotates one photo by `deg` (a multiple of 90) without cropping it. */
+export function rotateItem(id: string, deg: number): void {
+  if (!state.items.some((i) => i.id === id)) return;
+  const order = rowOrder().map((i) => i.id);
+  set({ items: state.items.map((i) => (i.id === id ? turned(i, deg) : i)) });
+  reorderRow(order);
+  commit();
+}
+
+/** Rotates every photo by `deg` (a multiple of 90) without cropping, in one history step. */
 export function rotateAll(deg: number): void {
   if (state.items.length === 0) return;
-  set({
-    items: state.items.map((i) => ({ ...i, rotation: normalizeRotation(i.rotation + deg) })),
-  });
-  layoutDirty = true;
+  const order = rowOrder().map((i) => i.id);
+  set({ items: state.items.map((i) => turned(i, deg)) });
+  reorderRow(order);
+  commit();
+}
+
+function reorderRow(ids: string[]): void {
+  if (!isRow()) return;
+  const byId = new Map(state.items.map((i) => [i.id, i]));
+  layoutOrdered(ids.map((id) => byId.get(id)).filter((i): i is CollageItem => !!i));
+}
+
+/** Row mode: moves an item to the slot nearest to `centerX` and re-flows the row. */
+export function dropInRow(id: string, centerX: number): void {
+  const it = state.items.find((i) => i.id === id);
+  if (!it || !isRow()) return;
+  const others = rowOrder().filter((i) => i.id !== id);
+  const idx = insertionIndex(
+    others.map((o) => o.x + o.width / 2),
+    centerX,
+  );
+  others.splice(idx, 0, it);
+  layoutOrdered(others);
+  commit();
+}
+
+/** Row mode: moves an item one slot left (-1) or right (+1). */
+export function shiftInRow(id: string, dir: -1 | 1): void {
+  if (!isRow()) return;
+  const order = rowOrder();
+  const from = order.findIndex((i) => i.id === id);
+  const to = from + dir;
+  if (from < 0 || to < 0 || to >= order.length) return;
+  [order[from], order[to]] = [order[to], order[from]];
+  layoutOrdered(order);
+  commit();
+}
+
+/** Removes all images (undoable). */
+export function clearAll(): void {
+  if (state.items.length === 0) return;
+  set({ items: [], selectedId: null, canvasWidth: 0, canvasHeight: 0 });
   commit();
 }
 
@@ -270,19 +393,21 @@ export function select(id: string | null): void {
 export function moveItem(id: string, x: number, y: number): void {
   const it = state.items.find((i) => i.id === id);
   if (!it) return;
+  if (isRow()) {
+    dropInRow(id, x + it.width / 2);
+    return;
+  }
   updateItem(id, clampPosition(x, y, it.width, it.height));
-  layoutDirty = true;
   commit();
 }
 
 export function resizeItem(id: string, x: number, y: number, width: number, height: number): void {
   const it = state.items.find((i) => i.id === id);
-  if (!it) return;
+  if (!it || isRow()) return;
   const k = MIN_ITEM_SIDE / Math.min(width, height);
   const w = k > 1 ? width * k : width;
   const h = k > 1 ? height * k : height;
   updateItem(id, { width: w, height: h, ...clampPosition(x, y, w, h) });
-  layoutDirty = true;
   commit();
 }
 
@@ -317,10 +442,7 @@ export function setItemView(id: string, view: ItemView, record = true): void {
   };
   if (!Object.values(next).every(Number.isFinite)) return;
   const changed = (Object.keys(next) as (keyof typeof next)[]).some((k) => next[k] !== it[k]);
-  if (changed) {
-    updateItem(id, next);
-    layoutDirty = true;
-  }
+  if (changed) updateItem(id, next);
   if (record && (changed || viewPending)) {
     viewPending = false;
     commit();
@@ -339,13 +461,25 @@ export function commitView(): void {
 
 export function nudgeSelected(dx: number, dy: number): void {
   const it = state.items.find((i) => i.id === state.selectedId);
-  if (it) moveItem(it.id, it.x + dx, it.y + dy);
+  if (!it) return;
+  if (isRow()) {
+    if (dx !== 0) shiftInRow(it.id, dx < 0 ? -1 : 1);
+    return;
+  }
+  moveItem(it.id, it.x + dx, it.y + dy);
+}
+
+/** Rotates the selected photo by `deg` (a multiple of 90) without cropping. */
+export function rotateSelected(deg: number): void {
+  if (state.selectedId) rotateItem(state.selectedId, deg);
 }
 
 export function deleteSelected(): void {
   if (!state.selectedId) return;
   const id = state.selectedId;
   set({ items: state.items.filter((i) => i.id !== id), selectedId: null });
+  if (state.items.length === 0) set({ canvasWidth: 0, canvasHeight: 0 });
+  reflow();
   commit();
 }
 
@@ -370,7 +504,6 @@ function restore(s: Snapshot): void {
     settings: { ...s.settings },
     selectedId: items.some((i) => i.id === state.selectedId) ? state.selectedId : null,
   });
-  layoutDirty = items.length > 0;
   emit();
 }
 
