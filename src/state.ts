@@ -233,6 +233,34 @@ export function updateSettings(patch: Partial<CollageSettings>): void {
   commit();
 }
 
+export const MIN_CANVAS = 50;
+export const MAX_CANVAS = 20000;
+
+/** Sets the canvas size; items are kept inside the new bounds. */
+export function setCanvasSize(width: number, height: number): void {
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return;
+  const cw = Math.round(Math.min(MAX_CANVAS, Math.max(MIN_CANVAS, width)));
+  const ch = Math.round(Math.min(MAX_CANVAS, Math.max(MIN_CANVAS, height)));
+  if (cw === state.canvasWidth && ch === state.canvasHeight) return;
+  set({
+    canvasWidth: cw,
+    canvasHeight: ch,
+    items: state.items.map((i) => ({ ...i, ...clampItem(i, cw, ch) })),
+  });
+  layoutDirty = true;
+  commit();
+}
+
+/** Rotates the content of every image by `deg` degrees in one history step. */
+export function rotateAll(deg: number): void {
+  if (state.items.length === 0) return;
+  set({
+    items: state.items.map((i) => ({ ...i, rotation: normalizeRotation(i.rotation + deg) })),
+  });
+  layoutDirty = true;
+  commit();
+}
+
 export function select(id: string | null): void {
   if (state.selectedId === id) return;
   set({ selectedId: id });
