@@ -45,3 +45,33 @@ export function defaultRowHeight(sizes: Size[]): number {
   const min = Math.min(...sizes.map((s) => s.height));
   return Math.min(1600, Math.max(200, min));
 }
+
+/** Size of a photo after a lossless quarter-turn rotation. */
+export function orientedSize(s: Size, orientation: number): Size {
+  return orientation % 180 === 0 ? s : { width: s.height, height: s.width };
+}
+
+/** Index at which an item whose centre is at `x` is inserted between items with these centres. */
+export function insertionIndex(sortedCenters: number[], x: number): number {
+  let i = 0;
+  while (i < sortedCenters.length && sortedCenters[i] < x) i++;
+  return i;
+}
+
+/** Row height that makes a row of these photos (approximately) `width` wide. */
+export function rowHeightForWidth(
+  sizes: Size[],
+  width: number,
+  gap: number,
+  padding: number,
+): number {
+  if (sizes.length === 0) return 0;
+  const aspectSum = sizes.reduce((a, s) => a + s.width / s.height, 0);
+  const free = width - padding * 2 - gap * (sizes.length - 1);
+  return Math.floor(free / aspectSum);
+}
+
+/** Row height that makes the canvas `height` tall. */
+export function rowHeightForHeight(height: number, padding: number): number {
+  return Math.round(height - padding * 2);
+}

@@ -1,6 +1,7 @@
 import Konva from 'konva';
 import { createGuides } from './guides';
 import { computeSnap } from '../snap/snap';
+import { insertionIndex } from '../layout/row';
 import type { Rect } from '../types';
 import {
   MIN_ITEM_SIDE,
@@ -8,6 +9,7 @@ import {
   getState,
   moveItem,
   resizeItem,
+  rowOrder,
   select,
   subscribe,
 } from '../state';
@@ -16,6 +18,10 @@ const SNAP_THRESHOLD_PX = 8;
 
 export interface StageHandle {
   getScale(): number;
+  /** Position of an item in page (client) coordinates, or null if it is not on the stage. */
+  itemClientRect(id: string): Rect | null;
+  /** Called after every re-render (state change or resize). */
+  onRender(fn: () => void): void;
   renderBlob(pixelRatio: number, mime: string, quality: number): Promise<Blob | null>;
 }
 
@@ -34,8 +40,10 @@ function checkerPattern(): HTMLCanvasElement {
 }
 
 /**
- * Draws an item: the frame is the clip rect, the image is zoomed and rotated around the
- * frame centre, anything outside the frame is cropped. Also used for the export.
+ * Draws an item: the frame is the clip rect. The photo is turned by its lossless orientation
+ * (the frame already has the turned aspect ratio, so it fills the frame exactly), then zoomed and
+ * finely rotated around the frame centre; anything outside the frame is cropped. Also used for the
+ * export.
  */
 function drawItem(ctx: Konva.Context, shape: Konva.Shape): void {
   const w = shape.width();
@@ -44,6 +52,7 @@ function drawItem(ctx: Konva.Context, shape: Konva.Shape): void {
   if (!image) return;
   const zoom = shape.getAttr('viewZoom') as number;
   const rotation = shape.getAttr('viewRotation') as number;
+  const orientation = (shape.getAttr('orientation') as number) ?? 0;
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, w, h);
@@ -51,9 +60,10 @@ function drawItem(ctx: Konva.Context, shape: Konva.Shape): void {
   const panX = (shape.getAttr('viewPanX') as number) ?? 0;
   const panY = (shape.getAttr('viewPanY') as number) ?? 0;
   ctx.translate(w / 2 + panX * w, h / 2 + panY * h);
-  ctx.rotate((rotation * Math.PI) / 180);
+  ctx.rotate(((orientation + rotation) * Math.PI) / 180);
   ctx.scale(zoom, zoom);
-  ctx.drawImage(image, -w / 2, -h / 2, w, h);
+  const [dw, dh] = orientation % 180 === 0 ? [w, h] : [h, w];
+  ctx.drawImage(image, -dw / 2, -dh / 2, dw, dh);
   ctx.restore();
 }
 function hitItem(ctx: Konva.Context, shape: Konva.Shape): void {
@@ -86,9 +96,41 @@ export function createStage(container: HTMLElement): StageHandle {
   });
   itemLayer.add(transformer);
   const guides = createGuides(guideLayer);
+  const insertMarker = new Konva.Rect({ visible: false, listening: false, fill: '#ff2d7a' });
+  guideLayer.add(insertMarker);
   const nodes = new Map<string, Konva.Shape>();
+  const renderListeners: (() => void)[] = [];
   let scale = 1;
   let others: Rect[] = [];
+  let rowOthers: Rect[] = [];
+
+  /** Row mode: shows where the dragged photo will be inserted. */
+  function drawInsertMarker(centerX: number): void {
+    const s = getState();
+    const idx = insertionIndex(
+      rowOthers.map((o) => o.x + o.width / 2),
+      centerX,
+    );
+    const half = Math.max(s.settings.gap / 2, 2 / scale);
+    const x =
+      rowOthers.length === 0
+        ? centerX
+        : idx === 0
+          ? rowOthers[0].x - half
+          : idx === rowOthers.length
+            ? rowOthers[idx - 1].x + rowOthers[idx - 1].width + half
+            : (rowOthers[idx - 1].x + rowOthers[idx - 1].width + rowOthers[idx].x) / 2;
+    const w = 4 / scale;
+    insertMarker.setAttrs({
+      visible: true,
+      x: x - w / 2,
+      y: s.settings.padding,
+      width: w,
+      height: s.settings.rowHeight,
+      cornerRadius: w / 2,
+    });
+    guideLayer.batchDraw();
+  }
 
   stage.on('mousedown touchstart', (e) => {
     if (e.target === stage) select(null);
@@ -97,14 +139,27 @@ export function createStage(container: HTMLElement): StageHandle {
   function attach(id: string, node: Konva.Shape): void {
     node.on('mousedown touchstart', () => select(id));
     node.on('dragstart', () => {
+      const rect = (i: Rect): Rect => ({ x: i.x, y: i.y, width: i.width, height: i.height });
       others = getState()
         .items.filter((i) => i.id !== id)
-        .map((i) => ({ x: i.x, y: i.y, width: i.width, height: i.height }));
+        .map(rect);
+      rowOthers = rowOrder()
+        .filter((i) => i.id !== id)
+        .map(rect);
+      node.moveToTop();
+      transformer.moveToTop();
+      container.dataset.dragging = '';
     });
     node.on('dragmove', (e) => {
       const s = getState();
       let x = node.x();
       let y = node.y();
+      if (s.settings.layoutMode === 'row') {
+        node.position(clampPosition(x, y, node.width(), node.height()));
+        drawInsertMarker(node.x() + node.width() / 2);
+        itemLayer.batchDraw();
+        return;
+      }
       const evt = e.evt as MouseEvent | TouchEvent | undefined;
       if (!(evt && 'altKey' in evt && evt.altKey)) {
         const r = computeSnap(
@@ -128,6 +183,8 @@ export function createStage(container: HTMLElement): StageHandle {
     });
     node.on('dragend', () => {
       guides.clear();
+      insertMarker.hide();
+      delete container.dataset.dragging;
       moveItem(id, node.x(), node.y());
     });
     node.on('transformend', () => {
@@ -152,7 +209,7 @@ export function createStage(container: HTMLElement): StageHandle {
     const { canvasWidth: w, canvasHeight: h } = s;
     stage.size({ width: Math.max(1, w * scale), height: Math.max(1, h * scale) });
     stage.scale({ x: scale, y: scale });
-    stage.container().style.display = s.items.length === 0 ? 'none' : 'block';
+    stage.container().style.visibility = s.items.length === 0 ? 'hidden' : '';
 
     const transparent = s.settings.background === 'transparent';
     bg.setAttrs({ width: w, height: h, fill: transparent ? undefined : s.settings.background });
@@ -180,6 +237,7 @@ export function createStage(container: HTMLElement): StageHandle {
       }
       node.setAttrs({
         image: it.source,
+        orientation: it.orientation,
         viewZoom: it.zoom,
         viewRotation: it.rotation,
         viewPanX: it.panX,
@@ -195,6 +253,7 @@ export function createStage(container: HTMLElement): StageHandle {
     });
     const sel = s.selectedId ? nodes.get(s.selectedId) : undefined;
     transformer.nodes(sel ? [sel] : []);
+    transformer.resizeEnabled(s.settings.layoutMode === 'free');
     transformer.moveToTop();
     stage.batchDraw();
 
@@ -202,6 +261,8 @@ export function createStage(container: HTMLElement): StageHandle {
     container.dataset.scale = String(scale);
     container.dataset.canvasWidth = String(w);
     container.dataset.canvasHeight = String(h);
+    container.dataset.layout = s.settings.layoutMode;
+    renderListeners.forEach((fn) => fn());
   }
 
   subscribe(render);
@@ -210,6 +271,20 @@ export function createStage(container: HTMLElement): StageHandle {
 
   return {
     getScale: () => scale,
+    itemClientRect(id) {
+      const it = getState().items.find((i) => i.id === id);
+      if (!it || !nodes.has(id)) return null;
+      const box = stage.content.getBoundingClientRect();
+      return {
+        x: box.left + it.x * scale,
+        y: box.top + it.y * scale,
+        width: it.width * scale,
+        height: it.height * scale,
+      };
+    },
+    onRender(fn) {
+      renderListeners.push(fn);
+    },
     async renderBlob(pixelRatio, mime, quality) {
       const s = getState();
       const prevFill = bg.fill();

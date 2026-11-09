@@ -9,7 +9,13 @@
     <header id="toolbar" role="toolbar" aria-label="Collage tools"></header>
     <main id="workspace">
       <div id="canvas-container" aria-label="Collage canvas"></div>
-      <button id="empty-state" type="button">Drop images here, paste, or click to add</button>
+      <button id="empty-state" type="button">
+        <span class="empty-title">Drop photos here, paste, or click to add</span>
+        <span class="empty-steps">
+          Photos are placed in one horizontal row · ⟲ ⟳ rotate without cropping · drag to reorder ·
+          ⤓ Download
+        </span>
+      </button>
     </main>
     <footer id="status" aria-live="off"></footer>
     <div id="drop-overlay" hidden>Drop images to add them</div>
